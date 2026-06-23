@@ -78,5 +78,4 @@ MIT License
 
 ## Support
 
-- Bug reports: [Issues](https://github.com/matyle/droidMirroring-mac/issues)
-- Code repository: [DroidMirroring](https://github.com/matyle/DroidMirroring)
+- Bug reports & feedback: [Issues](https://github.com/matyle/droidMirroring-mac/issues)
