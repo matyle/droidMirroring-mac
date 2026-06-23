@@ -39,6 +39,19 @@ Mirror your Android device screen to Mac natively. Low latency, full control.
 
 > Requires macOS 15.0 (Sequoia) or later.
 
+## First Launch
+
+> ⚠️ **Important:** Since the app is not notarized, macOS will block it on first launch. You need to manually allow it:
+>
+> 1. Double-click the app — you'll see a warning that it cannot be opened
+> 2. Open **System Settings → Privacy & Security**
+> 3. Scroll down and click **"Open Anyway"**
+> 4. Confirm in the dialog
+
+![Security warning](https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_14.14.50.92qsw7j4ek.webp)
+
+![Open Anyway](https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_14.15.07.3nsads3z0u.webp)
+
 ## Quick Start
 
 ### USB Connection

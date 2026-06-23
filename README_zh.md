@@ -39,6 +39,19 @@
 
 > 需要 macOS 15.0 (Sequoia) 或更高版本。
 
+## 首次运行
+
+> ⚠️ **重要提示：** 由于应用未公证，macOS 会在首次打开时拦截。你需要手动允许：
+>
+> 1. 双击应用 — 会看到无法打开的警告
+> 2. 打开 **系统设置 → 隐私与安全性**
+> 3. 向下滚动，点击 **"仍要打开"**
+> 4. 在弹出对话框中确认
+
+![安全警告](https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_14.14.50.92qsw7j4ek.webp)
+
+![仍要打开](https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_14.15.07.3nsads3z0u.webp)
+
 ## 快速开始
 
 ### USB 连接
