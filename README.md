@@ -15,8 +15,18 @@ Mirror your Android device screen to Mac natively. Low latency, full control.
 </p>
 
 <p align="center">
-  <img src="https://via.placeholder.com/400x300/16213e/ffffff?text=📱+Screenshot+1" width="48%" alt="Screenshot 1">
-  <img src="https://via.placeholder.com/400x300/0f3460/ffffff?text=🖥️+Screenshot+2" width="48%" alt="Screenshot 2">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.13.36.5j4v6e0b6k.webp" width="48%" alt="Waiting for device">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.05.7w7hnle4df.webp" width="48%" alt="Mirror mode">
+</p>
+
+<p align="center">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.22.2h8z55yyzv.webp" width="48%" alt="Mirror window">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.36.7snvpvl1o5.webp" width="48%" alt="Settings">
+</p>
+
+<p align="center">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.56.232jeaqo58.webp" width="48%" alt="Desktop mode">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.17.49.73um5uxml4.webp" width="48%" alt="File manager">
 </p>
 
 ---
