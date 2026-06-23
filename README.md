@@ -16,11 +16,11 @@ Mirror your Android device screen to Mac natively. Low latency, full control.
 
 <p align="center">
   <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_15.47.12.96aeu0klnf.webp" width="48%" alt="Waiting for device">
-  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_15.48.59.2dpd7juebx.webp" width="48%" alt="Mirror mode">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_16.04.36.9rk2gbyho4.png" width="48%" alt="Mirror mode">
 </p>
 
 <p align="center">
-  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_15.48.47.102u3ijc8x.webp" width="48%" alt="Desktop mode">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_15.53.05.7ehfz47j7r.webp" width="48%" alt="Desktop mode">
   <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.36.7snvpvl1o5.webp" width="48%" alt="Settings">
 </p>
 
