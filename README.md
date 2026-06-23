@@ -15,17 +15,16 @@ Mirror your Android device screen to Mac natively. Low latency, full control.
 </p>
 
 <p align="center">
-  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.13.36.5j4v6e0b6k.webp" width="48%" alt="Waiting for device">
-  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.05.7w7hnle4df.webp" width="48%" alt="Mirror mode">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_15.47.12.96aeu0klnf.webp" width="48%" alt="Waiting for device">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_15.48.59.2dpd7juebx.webp" width="48%" alt="Mirror mode">
 </p>
 
 <p align="center">
-  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.22.2h8z55yyzv.webp" width="48%" alt="Mirror window">
+  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_15.48.47.102u3ijc8x.webp" width="48%" alt="Desktop mode">
   <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.36.7snvpvl1o5.webp" width="48%" alt="Settings">
 </p>
 
 <p align="center">
-  <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.14.56.232jeaqo58.webp" width="48%" alt="Desktop mode">
   <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_11.17.49.73um5uxml4.webp" width="48%" alt="File manager">
 </p>
 
