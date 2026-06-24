@@ -5,14 +5,13 @@ Mirror your Android device screen to Mac natively. Low latency, full control.
 ![Platform](https://img.shields.io/badge/platform-macOS%2015%2B-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Universal](https://img.shields.io/badge/arch-Universal%20%28ARM64%20%2B%20x86__64%29-lightgrey)
+![Swift](https://img.shields.io/badge/Swift%206-F05138?logo=swift&logoColor=white)
+![Downloads](https://img.shields.io/github/downloads/matyle/droidMirroring-mac/total?color=orange&logo=github)
+![Last Release](https://img.shields.io/github/v/release/matyle/droidMirroring-mac?include_prereleases&logo=github)
 
 [中文版文档 →](README_zh.md)
 
 ---
-
-<p align="center">
-  <img src="https://via.placeholder.com/800x450/1a1a2e/ffffff?text=🎬+Video+Demo+Coming+Soon" alt="Demo Video" width="800">
-</p>
 
 <p align="center">
   <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_16.11.49.4xv7k7mpkq.png" width="48%" alt="Waiting for device">
@@ -102,15 +101,6 @@ Mirror your Android device screen to Mac natively. Low latency, full control.
 - After enabling, reconnect the device and try again.
 </details>
 
-## License
-
-MIT License
-
-## Support
-
-- Bug reports & feedback: [Issues](https://github.com/matyle/droidMirroring-mac/issues)
-- Follow on X: [@tan_maty](https://x.com/tan_maty)
-
 ## Attribution
 
 This project uses the following open source software:
@@ -119,3 +109,12 @@ This project uses the following open source software:
 - [adb (Android Debug Bridge)](https://developer.android.com/tools/adb) by Google — Apache License 2.0
 
 scrcpy-server.jar is bundled under the terms of the Apache License 2.0.
+
+## License
+
+Apache-2.0 License — see [LICENSE](LICENSE)
+
+## Support
+
+- Bug reports & feedback: [Issues](https://github.com/matyle/droidMirroring-mac/issues)
+- Follow on X: [@tan_maty](https://x.com/tan_maty)

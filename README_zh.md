@@ -5,14 +5,13 @@
 ![Platform](https://img.shields.io/badge/platform-macOS%2015%2B-blue)
 ![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Universal](https://img.shields.io/badge/arch-通用二进制%20%28ARM64%20%2B%20x86__64%29-lightgrey)
+![Swift](https://img.shields.io/badge/Swift%206-F05138?logo=swift&logoColor=white)
+![Downloads](https://img.shields.io/github/downloads/matyle/droidMirroring-mac/total?color=orange&logo=github)
+![Last Release](https://img.shields.io/github/v/release/matyle/droidMirroring-mac?include_prereleases&logo=github)
 
 [English README →](README.md)
 
 ---
-
-<p align="center">
-  <img src="https://via.placeholder.com/800x450/1a1a2e/ffffff?text=🎬+视频演示+即将推出" alt="视频演示" width="800">
-</p>
 
 <p align="center">
   <img src="https://github.com/matyle/picx-images-hosting/raw/master/iShot_2026-06-23_16.11.49.4xv7k7mpkq.png" width="48%" alt="等待设备">
@@ -102,9 +101,18 @@
 - 开启后重新连接设备再试。
 </details>
 
+## 致谢
+
+本项目使用了以下开源软件：
+
+- [scrcpy](https://github.com/Genymobile/scrcpy) by Genymobile — Apache License 2.0
+- [adb (Android Debug Bridge)](https://developer.android.com/tools/adb) by Google — Apache License 2.0
+
+scrcpy-server.jar 基于 Apache License 2.0 协议分发。
+
 ## 许可证
 
-MIT License
+Apache-2.0 License — 详见 [LICENSE](LICENSE)
 
 ## 支持
 
