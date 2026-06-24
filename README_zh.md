@@ -3,7 +3,7 @@
 将 Android 设备屏幕镜像到 Mac 上的原生应用。低延迟，全控制。
 
 ![Platform](https://img.shields.io/badge/platform-macOS%2015%2B-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
 ![Universal](https://img.shields.io/badge/arch-通用二进制%20%28ARM64%20%2B%20x86__64%29-lightgrey)
 
 [English README →](README.md)
