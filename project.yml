@@ -1,0 +1,196 @@
+# XcodeGen spec — generate DroidMirroring.xcodeproj.
+# Install: brew install xcodegen
+# Generate:  xcodegen generate
+# Reference: https://github.com/yonaskolb/XcodeGen
+
+name: DroidMirroring
+options:
+  bundleIdPrefix: com.droidmirroring.app
+  deploymentTarget:
+    macOS: "15.0"
+  developmentLanguage: zh-Hans
+  groupSortPosition: top
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.2.1"
+    CURRENT_PROJECT_VERSION: "1"
+    OBJECT_VERSION: Xcode
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_STRICT_CONCURRENCY: off
+    DEVELOPMENT_TEAM: ""             # fill in for release builds
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  ADBKit:          { path: Packages/ADBKit }
+  ScrcpyClient:    { path: Packages/ScrcpyClient }
+  MirrorEngine:    { path: Packages/MirrorEngine }
+  FusionEngine:    { path: Packages/FusionEngine }
+  DeviceDiscovery: { path: Packages/DeviceDiscovery }
+  SharedModels:    { path: Packages/SharedModels }
+
+targets:
+  DroidMirroring:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        SWIFT_STRICT_CONCURRENCY: off
+    resources:
+      - App/Resources
+    postBuildScripts:
+      - name: "Bundle adb + LICENSE files"
+        script: |
+          set -e
+          SRC="${SRCROOT}/App/Resources"
+          DST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          if [ -f "${SRC}/adb" ]; then
+            cp -f "${SRC}/adb" "${DST}/adb"
+            chmod +x "${DST}/adb"
+          else
+            echo "warning: ${SRC}/adb missing — run scripts/fetch-adb.sh"
+          fi
+          mkdir -p "${DST}/Licenses"
+          cp -f "${SRC}/Licenses/"* "${DST}/Licenses/" 2>/dev/null || true
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/adb
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: "Droid Mirroring"
+        LSApplicationCategoryType: public.app-category.productivity
+        NSHighResolutionCapable: true
+        NSLocalNetworkUsageDescription: "Droid Mirroring uses the local network to discover Android devices in Wireless ADB mode and to pair with them over a TLS link."
+        NSBonjourServices:
+          - _adb._tcp
+          - _adb-tls-connect._tcp
+          - _adb-tls-pairing._tcp
+    entitlements:
+      path: App/DroidMirroring.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.security.device.usb: true
+        com.apple.security.application-groups:
+          - group.com.droidmirroring.shared
+        com.apple.security.files.user-selected.read-write: true
+    dependencies:
+      - package: SharedModels
+      - package: ADBKit
+      - package: ScrcpyClient
+      - package: MirrorEngine
+      - package: FusionEngine
+      - package: DeviceDiscovery
+      - target: ScreenMirroringHelper
+        embed: true
+        copy:
+          destination: executables
+          subpath: Helpers
+      - target: FusionModeHelper
+        embed: true
+        copy:
+          destination: executables
+          subpath: Helpers
+      - target: ContinueOnHelper
+        embed: true
+        copy:
+          destination: executables
+          subpath: Helpers
+      - target: FileProviderExt
+        embed: true
+        copy:
+          destination: plugins
+      - target: ThumbnailExt
+        embed: true
+        copy:
+          destination: plugins
+
+  ScreenMirroringHelper:
+    type: application
+    platform: macOS
+    sources: [Helpers/ScreenMirroring]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.droidmirroring.app.DroidMirroring.ScreenMirroring
+    info:
+      path: Helpers/ScreenMirroring/Info.plist
+      properties:
+        CFBundleDisplayName: "Screen Mirroring — Droid Mirroring"
+        LSUIElement: true
+    dependencies:
+      - package: MirrorEngine
+      - package: SharedModels
+
+  FusionModeHelper:
+    type: application
+    platform: macOS
+    sources: [Helpers/FusionMode]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.droidmirroring.app.DroidMirroring.FusionMode
+    info:
+      path: Helpers/FusionMode/Info.plist
+      properties:
+        CFBundleDisplayName: "Fusion Mode — Droid Mirroring"
+        LSUIElement: true
+    dependencies:
+      - package: FusionEngine
+      - package: SharedModels
+
+  ContinueOnHelper:
+    type: application
+    platform: macOS
+    sources: [Helpers/ContinueOn]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.droidmirroring.app.DroidMirroring.ContinueOn
+    info:
+      path: Helpers/ContinueOn/Info.plist
+      properties:
+        CFBundleDisplayName: "Continue On — Droid Mirroring"
+        LSUIElement: true
+
+  FileProviderExt:
+    type: app-extension
+    platform: macOS
+    sources: [Extensions/FileProviderExt]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.droidmirroring.app.DroidMirroring.FileProvider
+      SWIFT_VERSION: "5"
+      SWIFT_STRICT_CONCURRENCY: off
+    info:
+      path: Extensions/FileProviderExt/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.fileprovider-nonui
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).FileProviderExtension
+    entitlements:
+      path: Extensions/FileProviderExt/FileProviderExt.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.application-groups:
+          - group.com.droidmirroring.shared
+    dependencies:
+      - package: ADBKit
+      - package: SharedModels
+
+  ThumbnailExt:
+    type: app-extension
+    platform: macOS
+    sources: [Extensions/ThumbnailExt]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.droidmirroring.app.DroidMirroring.Thumbnail
+    info:
+      path: Extensions/ThumbnailExt/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.quicklook.thumbnail
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ThumbnailProvider
+    entitlements:
+      path: Extensions/ThumbnailExt/ThumbnailExt.entitlements
+      properties:
+        com.apple.security.app-sandbox: true

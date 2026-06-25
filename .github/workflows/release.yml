@@ -1,0 +1,144 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Select latest Xcode
+        run: |
+          ls /Applications/ | grep -i xcode
+          sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Bootstrap (scrcpy + adb)
+        run: |
+          chmod +x scripts/bootstrap.sh 2>/dev/null || true
+          ./scripts/bootstrap.sh 2>/dev/null || echo "No bootstrap script"
+
+      - name: Build Universal
+        run: |
+          xcodebuild -project DroidMirroring.xcodeproj \
+            -scheme DroidMirroring \
+            -configuration Release \
+            -derivedDataPath build \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            SWIFT_STRICT_CONCURRENCY=off \
+            build
+
+      - name: Get version from tag
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg-out
+          cp -r build/Build/Products/Release/DroidMirroring.app dmg-out/
+          ln -sf /Applications dmg-out/Applications
+          hdiutil create -volname "DroidMirroring" \
+            -srcfolder dmg-out -ov -format UDZO \
+            "DroidMirroring-${{ steps.version.outputs.tag }}-universal.dmg"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DroidMirroring
+          path: "DroidMirroring-${{ steps.version.outputs.tag }}-universal.dmg"
+
+      - name: Extract changelog entry
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > notes.md
+
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: notes.md
+
+      - name: Show binary archs
+        run: lipo -info dmg-out/DroidMirroring.app/Contents/MacOS/DroidMirroring
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout docs repo
+        uses: actions/checkout@v4
+        with:
+          repository: matyle/droidMirroring-mac
+          token: ${{ secrets.CROSS_REPO }}
+          path: docs-repo
+
+      - name: Download DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: DroidMirroring
+
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: .
+
+      - name: Get version
+        id: version
+        run: echo "tag=${{ inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Replace old DMG
+        run: |
+          cd docs-repo
+          rm -f *.dmg
+          cp ../DroidMirroring-*.dmg ./DroidMirroring-universal.dmg
+
+      - name: Commit and push DMG
+        run: |
+          cd docs-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add *.dmg
+          git commit -m "chore: update DMG for ${{ steps.version.outputs.tag }}" || echo "No changes"
+          git push
+
+      - name: Create Release on public repo
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: matyle/droidMirroring-mac
+          token: ${{ secrets.CROSS_REPO }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body_path: notes.md
+          files: DroidMirroring-*.dmg
+
+      - name: Create Release on this repo
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body_path: notes.md
+          files: DroidMirroring-*.dmg
