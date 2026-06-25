@@ -18,7 +18,7 @@ public struct WirelessEndpoint: Identifiable, Hashable, Sendable {
   public let id: String              // "<kind>:<service-name>"
   public let kind: Kind
   public let serviceName: String     // e.g. "adb-RFCY71LT3MA-abcd"
-  public let host: String            // resolved IPv4/IPv6 literal
+  public let host: String            // resolved IPv4 address
   public let port: Int
 
   public var displayName: String { serviceName }
@@ -112,45 +112,120 @@ public final class WirelessBrowser: ObservableObject {
     endpoints = Array(cache.values).sorted { $0.id < $1.id }
   }
 
-  /// Resolve a Bonjour service to host+port by opening a transient NWConnection.
-  /// Returns nil if resolution times out or fails.
+  /// Resolve a Bonjour service to an IPv4 host+port.
+  ///
+  /// Uses `DNSServiceResolve` to get the service's hostname and port,
+  /// then `getaddrinfo(AF_INET)` to force an IPv4 address lookup.
+  /// This avoids the NWConnection IPv6-first issue that blocks discovery
+  /// when macOS has IPv6 enabled (Android ADB wireless only supports IPv4).
   private func resolve(result: NWBrowser.Result) async -> (host: String, port: Int)? {
-    final class Latch: @unchecked Sendable { var fired = false; let q = DispatchQueue(label: "resolve.latch") }
-    let latch = Latch()
-    return await withCheckedContinuation { (cont: CheckedContinuation<(host: String, port: Int)?, Never>) in
-      let conn = NWConnection(to: result.endpoint, using: .tcp)
-      let finish: @Sendable ((host: String, port: Int)?) -> Void = { value in
-        var shouldFire = false
-        latch.q.sync { if !latch.fired { latch.fired = true; shouldFire = true } }
-        guard shouldFire else { return }
-        conn.cancel()
-        cont.resume(returning: value)
+    guard case .service(let name, let type, let domain, _) = result.endpoint else { return nil }
+
+    return await withCheckedContinuation { continuation in
+      let resolver = ServiceResolver(name: name, type: type, domain: domain)
+      resolver.resolve { host, port in
+        continuation.resume(returning: host.map { ($0, port) })
       }
-      conn.stateUpdateHandler = { state in
-        switch state {
-        case .ready:
-          if case .hostPort(let h, let p) = conn.currentPath?.remoteEndpoint,
-             let hostStr = Self.format(host: h) {
-            finish((hostStr, Int(p.rawValue)))
-          } else {
-            finish(nil)
-          }
-        case .failed, .cancelled:
-          finish(nil)
-        default: break
-        }
-      }
-      conn.start(queue: .global(qos: .utility))
-      DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) { finish(nil) }
     }
   }
+}
 
-  nonisolated private static func format(host: NWEndpoint.Host) -> String? {
-    switch host {
-    case .name(let n, _): return n
-    case .ipv4(let a):    return a.debugDescription.components(separatedBy: "%").first ?? "\(a)"
-    case .ipv6:           return nil  // adb pair/connect doesn't support IPv6
-    @unknown default:     return nil
+// MARK: - Service Resolver (IPv4-only DNS-SD)
+
+/// Resolves an mDNS service to an IPv4 address using the C DNS-SD API.
+private final class ServiceResolver: @unchecked Sendable {
+  private let name: String
+  private let type: String
+  private let domain: String
+  private var sdRef: DNSServiceRef?
+
+  init(name: String, type: String, domain: String) {
+    self.name = name
+    self.type = type
+    self.domain = domain
+  }
+
+  func resolve(completion: @escaping @Sendable (String?, Int) -> Void) {
+    var sdRef: DNSServiceRef?
+    let context = Unmanaged.passUnretained(self).toOpaque()
+
+    let status = name.withCString { namePtr in
+      type.withCString { typePtr in
+        domain.withCString { domainPtr in
+          DNSServiceResolve(
+            &sdRef, 0, 0, namePtr, typePtr, domainPtr,
+            ServiceResolver.resolveCallback, context
+          )
+        }
+      }
+    }
+
+    guard status == kDNSServiceErr_NoError, let ref = sdRef else {
+      completion(nil, 0)
+      return
+    }
+    self.sdRef = ref
+
+    // Run DNSServiceProcessResult on a background thread (blocking call)
+    DispatchQueue.global(qos: .utility).async { [resolver = self] in
+      let refToUse = resolver.sdRef
+
+      // Timeout: deallocate after 2 seconds
+      DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+        if let ref = refToUse {
+          DNSServiceRefDeallocate(ref)
+          resolver.sdRef = nil
+        }
+      }
+
+      // Process results — this blocks until the reply arrives or the ref is deallocated
+      if let ref = refToUse {
+        DNSServiceProcessResult(ref)
+      }
+    }
+
+    // Store the completion for use in the callback
+    self.completion = completion
+  }
+
+  fileprivate var completion: (@Sendable (String?, Int) -> Void)?
+
+  fileprivate func finish(host: String?, port: Int) {
+    if let ref = sdRef {
+      DNSServiceRefDeallocate(ref)
+      sdRef = nil
+    }
+    completion?(host, port)
+    completion = nil
+  }
+
+  /// C callback for DNSServiceResolve — must be a static function.
+  static let resolveCallback: DNSServiceResolveReply = {
+    sdRef, _, _, _, _, hosttarget, port, _, _, context in
+    guard let context, let hosttarget else { return }
+    let resolver = Unmanaged<ServiceResolver>.fromOpaque(context).takeUnretainedValue()
+
+    var hostStr = String(cString: hosttarget)
+    if hostStr.hasSuffix(".") { hostStr.removeLast() }
+    let portNum = Int(UInt16(bigEndian: port))
+
+    // Resolve hostname to IPv4 address using getaddrinfo (AF_INET only)
+    var hints = addrinfo()
+    hints.ai_family = AF_INET        // IPv4 only — ADB wireless doesn't support IPv6
+    hints.ai_socktype = SOCK_STREAM
+
+    var result: UnsafeMutablePointer<addrinfo>?
+    if getaddrinfo(hostStr, nil, &hints, &result) == 0, let ai = result {
+      let ipv4 = ai.pointee.ai_addr!.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { ptr in
+        var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+        inet_ntop(AF_INET, &ptr.pointee.sin_addr, &buf, socklen_t(INET_ADDRSTRLEN))
+        return String(cString: buf)
+      }
+      freeaddrinfo(result)
+      resolver.finish(host: ipv4, port: portNum)
+    } else {
+      // Fallback: return hostname directly (adb might resolve it)
+      resolver.finish(host: hostStr, port: portNum)
     }
   }
 }
