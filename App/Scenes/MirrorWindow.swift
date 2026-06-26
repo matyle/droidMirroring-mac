@@ -21,6 +21,11 @@ final class MirrorWindowController: NSWindowController {
   private var isRecording = false
   private var isClipboardSyncing = true     // default ON, AndroMeld-style
   private var isScreenOff = false
+  /// "mac" | "phone" | "none" — persisted in UserDefaults
+  private var audioOutput: String {
+    get { UserDefaults.standard.string(forKey: "mirror.audioOutput") ?? "mac" }
+    set { UserDefaults.standard.set(newValue, forKey: "mirror.audioOutput") }
+  }
   private var clipboardBridge: ClipboardBridge?
   private let deviceDisplayName: String
 
@@ -310,12 +315,24 @@ final class MirrorWindowController: NSWindowController {
     clipboardBridge?.enabled = isClipboardSyncing
   }
 
+  /// Cycle audio output: mac → phone → none → mac
+  @objc private func cycleAudioOutput() {
+    let next: String
+    switch audioOutput {
+    case "mac":   next = "phone"
+    case "phone": next = "none"
+    default:      next = "mac"
+    }
+    audioOutput = next
+  }
+
   @objc private func toggleScreenOff() {
     isScreenOff.toggle()
-    let mode: UInt8 = isScreenOff ? 0 : 2
     Task {
       if let writer = await session.control {
-        try? await writer.send(.setScreenPowerMode(mode))
+        // Use KEYCODE_POWER for true screen on/off
+        try? await writer.send(.keycode(26, action: .down))
+        try? await writer.send(.keycode(26, action: .up))
       }
     }
   }
@@ -359,7 +376,8 @@ final class MirrorWindowController: NSWindowController {
         isRecording: isRecording,
         isClipboardSyncing: isClipboardSyncing,
         isScreenOff: isScreenOff,
-        isPinned: isPinned
+        isPinned: isPinned,
+        audioOutput: audioOutput
       ),
       onBack:       { [weak self] in dismiss(); self?.sendBack() },
       onHome:       { [weak self] in dismiss(); self?.sendHome() },
@@ -370,7 +388,8 @@ final class MirrorWindowController: NSWindowController {
       onClipboard:  { [weak self] in dismiss(); self?.toggleClipboardSync() },
       onScreenOff:  { [weak self] in dismiss(); self?.toggleScreenOff() },
       onWake:       { [weak self] in dismiss(); self?.wakeDevice() },
-      onPin:        { [weak self] in dismiss(); self?.togglePin() }
+      onPin:        { [weak self] in dismiss(); self?.togglePin() },
+      onCycleAudio: { [weak self] in dismiss(); self?.cycleAudioOutput() }
     )
     let hosting = NSHostingController(rootView: panel)
     popover.contentViewController = hosting
@@ -542,6 +561,7 @@ struct MoreActionsPanel: View {
     var isClipboardSyncing: Bool
     var isScreenOff: Bool
     var isPinned: Bool
+    var audioOutput: String  // "mac" | "phone" | "none"
   }
 
   let state: State
@@ -555,6 +575,23 @@ struct MoreActionsPanel: View {
   let onScreenOff: () -> Void
   let onWake: () -> Void
   let onPin: () -> Void
+  let onCycleAudio: () -> Void
+
+  var audioLabel: String {
+    switch state.audioOutput {
+    case "mac":   return "Mac"
+    case "phone": return "Phone"
+    default:      return "Mute"
+    }
+  }
+
+  var audioSymbol: String {
+    switch state.audioOutput {
+    case "mac":   return "speaker.wave.3.fill"
+    case "phone": return "iphone.gen2"
+    default:      return "speaker.slash.fill"
+    }
+  }
 
   var body: some View {
     VStack(spacing: 8) {
@@ -580,6 +617,9 @@ struct MoreActionsPanel: View {
              label: state.isScreenOff ? "Wake" : "Sleep",
              tint: state.isScreenOff ? .yellow : nil,
              action: onScreenOff)
+        Tile(symbol: audioSymbol, label: audioLabel, action: onCycleAudio)
+      }
+      HStack(spacing: 8) {
         Tile(symbol: "power", label: "Power", action: onWake)
         Tile(symbol: state.isPinned ? "pin.fill" : "pin",
              label: "Pin",
