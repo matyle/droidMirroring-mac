@@ -88,13 +88,6 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout docs repo
-        uses: actions/checkout@v4
-        with:
-          repository: matyle/droidMirroring-mac
-          token: ${{ secrets.CROSS_REPO }}
-          path: docs-repo
-
       - name: Download DMG
         uses: actions/download-artifact@v4
         with:
@@ -110,32 +103,7 @@ jobs:
         id: version
         run: echo "tag=${{ inputs.version || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
-      - name: Replace old DMG
-        run: |
-          cd docs-repo
-          rm -f *.dmg
-          cp ../DroidMirroring-*.dmg ./DroidMirroring-universal.dmg
-
-      - name: Commit and push DMG
-        run: |
-          cd docs-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.dmg
-          git commit -m "chore: update DMG for ${{ steps.version.outputs.tag }}" || echo "No changes"
-          git push
-
-      - name: Create Release on public repo
-        uses: softprops/action-gh-release@v2
-        with:
-          repository: matyle/droidMirroring-mac
-          token: ${{ secrets.CROSS_REPO }}
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.version.outputs.tag }}
-          body_path: notes.md
-          files: DroidMirroring-*.dmg
-
-      - name: Create Release on this repo
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
