@@ -167,7 +167,7 @@ private final class ServiceResolver: @unchecked Sendable {
       return
     }
     self.sdRef = ref
-    self.sdRefPtr = UInt(bitPattern: OpaquePointer(ref))
+    self.sdRefPtr = UInt(bitPattern: ref)
 
     // Run DNSServiceProcessResult on a background thread (blocking call)
     DispatchQueue.global(qos: .utility).async { [resolver = self] in
