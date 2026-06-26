@@ -130,3 +130,7 @@ Apache-2.0 License — see [LICENSE](LICENSE)
 - Bug reports & feedback: [Issues](https://github.com/matyle/droidMirroring-mac/issues)
 - Follow on X: [@tan_maty](https://x.com/tan_maty)
 - Community: [linux.do](https://linux.do)
+
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=matyle/droidMirroring-mac&type=Date)](https://star-history.com/#matyle/droidMirroring-mac&Date)
