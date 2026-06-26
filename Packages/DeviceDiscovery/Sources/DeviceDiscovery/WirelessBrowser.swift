@@ -171,8 +171,11 @@ private final class ServiceResolver: @unchecked Sendable {
       let refToUse = resolver.sdRef
 
       // Timeout: deallocate after 2 seconds
+      // Store as UInt to avoid Sendable warning with DNSServiceRef?
+      let refPtr = refToUse.map { UInt(bitPattern: OpaquePointer($0)) }
       DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
-        if let ref = refToUse {
+        if let ptr = refPtr {
+          let ref = DNSServiceRef(UnsafeMutableRawPointer(bitPattern: ptr)!)
           DNSServiceRefDeallocate(ref)
           resolver.sdRef = nil
         }
