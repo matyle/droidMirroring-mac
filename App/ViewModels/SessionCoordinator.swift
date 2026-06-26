@@ -363,6 +363,21 @@ final class SessionCoordinator: ObservableObject {
     pollTasks[device.id]?.cancel()
     pollTasks.removeValue(forKey: device.id)
     activePanel.removeValue(forKey: device.id)
+
+    // If there are Fusion windows for this device, close them too so freeform
+    // settings get properly restored.
+    let fusionKeys = fusionWindows.keys.filter { $0.hasPrefix(device.id + "|") }
+    for key in fusionKeys {
+      fusionWindows[key]?.close()
+      fusionWindows[key] = nil
+    }
+
+    // Restore freeform settings before tearing down the mirror session.
+    if let token = freeformTokens.removeValue(forKey: device.id),
+       let activator = freeformActivators[device.id] {
+      await activator.deactivate(token)
+    }
+
     guard let controller = mirrorWindows[device.id] else { return }
     await controller.session.stop()
     controller.close()
