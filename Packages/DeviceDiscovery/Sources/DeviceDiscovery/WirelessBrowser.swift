@@ -138,6 +138,8 @@ private final class ServiceResolver: @unchecked Sendable {
   private let type: String
   private let domain: String
   private var sdRef: DNSServiceRef?
+  // Store ref as UInt for Sendable closure capture
+  private nonisolated(unsafe) var sdRefPtr: UInt = 0
 
   init(name: String, type: String, domain: String) {
     self.name = name
@@ -165,24 +167,25 @@ private final class ServiceResolver: @unchecked Sendable {
       return
     }
     self.sdRef = ref
+    self.sdRefPtr = UInt(bitPattern: OpaquePointer(ref))
 
     // Run DNSServiceProcessResult on a background thread (blocking call)
     DispatchQueue.global(qos: .utility).async { [resolver = self] in
-      let refToUse = resolver.sdRef
-
       // Timeout: deallocate after 2 seconds
-      // Store as UInt to avoid Sendable warning with DNSServiceRef?
-      let refPtr = refToUse.map { UInt(bitPattern: OpaquePointer($0)) }
+      let refPtr = resolver.sdRefPtr
       DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
-        if let ptr = refPtr {
-          let ref = DNSServiceRef(UnsafeMutableRawPointer(bitPattern: ptr)!)
-          DNSServiceRefDeallocate(ref)
-          resolver.sdRef = nil
+        if refPtr != 0 {
+          let rawPtr = UnsafeMutableRawPointer(bitPattern: refPtr)
+          if let rawPtr {
+            DNSServiceRefDeallocate(DNSServiceRef(rawPtr))
+            resolver.sdRef = nil
+            resolver.sdRefPtr = 0
+          }
         }
       }
 
       // Process results — this blocks until the reply arrives or the ref is deallocated
-      if let ref = refToUse {
+      if let ref = resolver.sdRef {
         DNSServiceProcessResult(ref)
       }
     }
@@ -197,6 +200,7 @@ private final class ServiceResolver: @unchecked Sendable {
     if let ref = sdRef {
       DNSServiceRefDeallocate(ref)
       sdRef = nil
+      sdRefPtr = 0
     }
     completion?(host, port)
     completion = nil
