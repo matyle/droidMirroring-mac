@@ -401,13 +401,14 @@ final class SessionCoordinator: ObservableObject {
     let codec = (defaults.string(forKey: "mirror.codec") ?? "h265")
     let bitrateMbps = (defaults.object(forKey: "mirror.bitrate") as? Int) ?? 4
     let maxFps = (defaults.object(forKey: "mirror.maxFps") as? Int) ?? 30
+    let audioOutput = defaults.string(forKey: "mirror.audioOutput") ?? "mac"
 
     let options = ScrcpyOptions(
       videoBitRate: bitrateMbps * 1_000_000,
       maxFps: maxFps,
       videoCodec: codec,
       audioCodec: "opus",
-      audioEnabled: true,
+      audioEnabled: audioOutput == "mac",
       controlEnabled: true,
       displayId: displayId
     )
