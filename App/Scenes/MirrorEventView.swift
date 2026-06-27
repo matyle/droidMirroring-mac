@@ -22,6 +22,11 @@ final class MirrorEventView: NSView, NSTextInputClient {
   /// or clicks a candidate).
   private var markedText: NSMutableAttributedString?
 
+  /// True while the IME has an active composition (setMarkedText was called
+  /// and not yet followed by unmarkText / insertText).  Prevents forwarding
+  /// raw pinyin / romaji letters to Android during IME input.
+  private var isComposingIME = false
+
   private var _currentFrame: NSRect = .zero
 
   func selectedRange() -> NSRange {
@@ -65,9 +70,28 @@ final class MirrorEventView: NSView, NSTextInputClient {
 
     // Clear any marked text state
     markedText = nil
+    isComposingIME = false
 
-    // Send to Android via scrcpy inject_text
-    controlSink?(.text(textToInsert))
+    // ── IME guard ──────────────────────────────────────────────────────────
+    // When the IME is actively composing (setMarkedText was called), some
+    // macOS configurations call insertText with the raw pinyin / romaji
+    // letters as a side-effect of interpretKeyEvents.  We must NOT forward
+    // those letters — the final committed text will arrive in a later call.
+    // We detect this by checking whether the text is pure ASCII while the
+    // IME is still in a composition session.
+    if isComposingIME && textToInsert.allSatisfy({ $0.isASCII }) {
+      return   // letters during composition — swallow
+    }
+
+    if textToInsert.allSatisfy({ $0.isASCII }) {
+      // ASCII — direct keycode injection works fine
+      controlSink?(.text(textToInsert))
+    } else {
+      // Non-ASCII (Chinese / Japanese / emoji / …) — inject_text via KeyEvent
+      // is unreliable for CJK on many Android builds.  Use the clipboard path
+      // instead: set device clipboard then paste.
+      controlSink?(.setClipboard(text: textToInsert, paste: true))
+    }
   }
 
   func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -78,13 +102,16 @@ final class MirrorEventView: NSView, NSTextInputClient {
     } else if let str = string as? String {
       markedText = NSMutableAttributedString(string: str)
     }
-    // We don't send the partial text to Android yet — wait for commit.
-    // This prevents garbled half-typed pinyin from appearing on the device.
+    // Mark that the IME is actively composing — prevents forwarding raw
+    // pinyin / romaji letters to Android via interpretKeyEvents side effects.
+    isComposingIME = true
   }
 
   func unmarkText() {
-    // Called when the IME composition is cancelled (e.g. user presses Esc).
+    // Called when the IME composition is cancelled (e.g. user presses Esc)
+    // or after insertText commits the final text.
     markedText = nil
+    isComposingIME = false
   }
 
   // MARK: - init / focus / cursor
@@ -209,8 +236,15 @@ final class MirrorEventView: NSView, NSTextInputClient {
     if let keycode = MirrorKeyMap.androidKeycode(for: event) {
       // If there's pending IME composition, commit it first before sending the keycode
       if let marked = markedText, marked.length > 0 {
-        controlSink?(.text(marked.string))
+        // Pending marked text — send via clipboard (CJK-safe)
+        let text = marked.string
         markedText = nil
+        isComposingIME = false
+        if text.allSatisfy({ $0.isASCII }) {
+          controlSink?(.text(text))
+        } else {
+          controlSink?(.setClipboard(text: text, paste: true))
+        }
       }
       controlSink?(.keycode(keycode, action: .down, metaState: MirrorKeyMap.metaState(for: event)))
       return
@@ -218,7 +252,15 @@ final class MirrorEventView: NSView, NSTextInputClient {
     // For regular character keys, let the IME system handle it.
     // This interprets the key event through the NSTextInputClient pipeline,
     // which handles marked text (Chinese pinyin, Japanese kana, etc.)
+    let hadMarkedText = isComposingIME
     interpretKeyEvents([event])
+    // If interpretKeyEvents didn't trigger the IME (no setMarkedText/insertText)
+    // but the event carries non-ASCII characters (direct IME output on some
+    // macOS versions), send them via clipboard.
+    if !isComposingIME, !hadMarkedText,
+       let chars = event.characters, !chars.isEmpty, !chars.allSatisfy({ $0.isASCII }) {
+      controlSink?(.setClipboard(text: chars, paste: true))
+    }
   }
 
   override func keyUp(with event: NSEvent) {
@@ -233,27 +275,34 @@ final class MirrorEventView: NSView, NSTextInputClient {
 
   // Forward doCommand(by:) from NSResponder so key equivalents work
   override func doCommand(by selector: Selector) {
-    // Handle any pending input selector from the text input system
-    if selector == #selector(insertTab(_:)) {
-      if let marked = markedText, marked.length > 0 {
-        controlSink?(.text(marked.string))
-        markedText = nil
+    // Helper: commit pending marked text to Android (clipboard for CJK).
+    func commitMarkedText() {
+      guard let marked = markedText, marked.length > 0 else { return }
+      let text = marked.string
+      markedText = nil
+      isComposingIME = false
+      if text.allSatisfy({ $0.isASCII }) {
+        controlSink?(.text(text))
+      } else {
+        controlSink?(.setClipboard(text: text, paste: true))
       }
+    }
+
+    if selector == #selector(insertTab(_:)) {
+      commitMarkedText()
       controlSink?(.keycode(61, action: .down))  // KEYCODE_TAB
       controlSink?(.keycode(61, action: .up))
     } else if selector == #selector(insertNewline(_:)) {
-      if let marked = markedText, marked.length > 0 {
-        controlSink?(.text(marked.string))
-        markedText = nil
-      }
+      commitMarkedText()
       controlSink?(.keycode(66, action: .down))  // KEYCODE_ENTER
       controlSink?(.keycode(66, action: .up))
     } else if selector == #selector(deleteBackward(_:)) {
-      if let marked = markedText, marked.length > 0 {
+      if markedText != nil, let len = markedText?.length, len > 0 {
         // Remove last character from marked text instead of sending to Android
-        let len = marked.length
-        if len > 0 {
-          marked.deleteCharacters(in: NSRange(location: len - 1, length: 1))
+        markedText?.deleteCharacters(in: NSRange(location: len - 1, length: 1))
+        if markedText?.length == 0 {
+          markedText = nil
+          isComposingIME = false
         }
       } else {
         controlSink?(.keycode(67, action: .down))  // KEYCODE_DEL
