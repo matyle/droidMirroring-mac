@@ -41,6 +41,7 @@ private struct MirrorSettings: View {
   @AppStorage("mirror.maxFps") private var maxFps = 30
   @AppStorage("mirror.autoScreenOff") private var autoScreenOff = true
   @AppStorage("mirror.clipboardSync") private var clipboardSync = true
+  @AppStorage("mirror.audioOutput") private var audioOutput = "mac"  // "mac" | "phone" | "none"
 
   var body: some View {
     Form {
@@ -53,6 +54,20 @@ private struct MirrorSettings: View {
         Stepper("Bitrate: \(bitrate) Mbps", value: $bitrate, in: 1...50)
         Stepper("Max FPS: \(maxFps)", value: $maxFps, in: 15...120, step: 5)
         Text("Lower bitrate / FPS = less heat. For 90/120Hz devices, increase FPS for smoother motion. Defaults (4 Mbps / 30 fps) are tuned for thermals.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      Section("Audio") {
+        Picker("Audio output", selection: $audioOutput) {
+          Text("Mac speakers").tag("mac")
+          Text("Phone speakers / Bluetooth").tag("phone")
+          Text("Mute").tag("none")
+        }
+        Text("""
+          • Mac: play audio through your Mac
+          • Phone: audio stays on the device (use with BT speaker)
+          • Mute: no audio at all
+          """)
           .font(.caption)
           .foregroundStyle(.secondary)
       }

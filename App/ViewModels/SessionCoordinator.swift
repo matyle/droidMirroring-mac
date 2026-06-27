@@ -401,18 +401,51 @@ final class SessionCoordinator: ObservableObject {
     let codec = (defaults.string(forKey: "mirror.codec") ?? "h265")
     let bitrateMbps = (defaults.object(forKey: "mirror.bitrate") as? Int) ?? 4
     let maxFps = (defaults.object(forKey: "mirror.maxFps") as? Int) ?? 30
+    let audioOutput = defaults.string(forKey: "mirror.audioOutput") ?? "mac"
 
     let options = ScrcpyOptions(
       videoBitRate: bitrateMbps * 1_000_000,
       maxFps: maxFps,
       videoCodec: codec,
       audioCodec: "opus",
-      audioEnabled: true,
+      audioEnabled: audioOutput == "mac",
       controlEnabled: true,
       displayId: displayId
     )
     try await controller.session.start(launcher: launcher, options: options)
     await controller.bindControl()
+  }
+
+  /// Tear down and re-launch the scrcpy session for `serial` without closing
+  /// the mirror window.  Used when a runtime setting (audio output mode)
+  /// changes and requires a new server-side configuration.  The controller's
+  /// `isRestarting` flag is set by the caller so `bindControl()` can skip
+  /// one-shot initialisation (auto-screen-off, audio mute, clipboard reset).
+  func restartMirror(for serial: String) async {
+    guard let controller = mirrorWindows[serial] else { return }
+    pollTasks[serial]?.cancel()
+    pollTasks[serial] = nil
+    let displayId = activePanel[serial]?.id ?? 0
+
+    let device = Device(
+      id: serial,
+      model: await controller.session.deviceName,
+      state: .online
+    )
+
+    await controller.session.stop()
+
+    do {
+      try await launchSession(for: device, displayId: displayId, into: controller)
+      startActiveDisplayPolling(for: device)
+      log.notice("session restarted for \(serial)")
+    } catch {
+      log.error("restart failed for \(serial): \(error)")
+      controller.isRestarting = false
+      controller.close()
+      mirrorWindows.removeValue(forKey: serial)
+      activePanel.removeValue(forKey: serial)
+    }
   }
 
   // MARK: fold/unfold polling

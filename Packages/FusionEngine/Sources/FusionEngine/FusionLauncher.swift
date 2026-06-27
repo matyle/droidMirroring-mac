@@ -119,17 +119,34 @@ public actor FusionLauncher {
   /// Uses `dumpsys window` (≈5 KB, atomic) instead of `dumpsys display` (≈400 KB,
   /// trips the adb shell stream's POSIX 96 ENOMSG short-read fairly often).
   /// Format: `  Display{#<id> state=<S> size=<W>x<H> ROTATION_<N>}:`
+  ///
+  /// Retries up to 2 times on transient ADB errors — on wireless connections
+  /// even `dumpsys window` can occasionally hit ENOMSG when the device daemon
+  /// closes the shell stream at an unfortunate moment. The retry is cheap
+  /// (~200 ms) and almost always succeeds on the second attempt.
   private func virtualDisplayIds(serial: String) async throws -> Set<Int> {
-    let raw = try await adb.shell("dumpsys window", serial: serial)
-    var ids: Set<Int> = []
-    for line in raw.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
-      let s = String(line)
-      guard let range = s.range(of: "Display{#") else { continue }
-      let tail = s[range.upperBound...]
-      let digits = tail.prefix(while: { $0.isNumber })
-      if let id = Int(digits) { ids.insert(id) }
+    var lastError: Error?
+    for attempt in 0..<3 {
+      do {
+        let raw = try await adb.shell("dumpsys window", serial: serial)
+        var ids: Set<Int> = []
+        for line in raw.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+          let s = String(line)
+          guard let range = s.range(of: "Display{#") else { continue }
+          let tail = s[range.upperBound...]
+          let digits = tail.prefix(while: { $0.isNumber })
+          if let id = Int(digits) { ids.insert(id) }
+        }
+        return ids
+      } catch {
+        lastError = error
+        if attempt < 2 {
+          try? await Task.sleep(nanoseconds: 200_000_000)  // 200ms backoff
+          continue
+        }
+      }
     }
-    return ids
+    throw lastError ?? DroidMirroringError.adbProtocol("virtualDisplayIds: unknown failure")
   }
 
   private func resolveNewDisplayId(serial: String, before: Set<Int>) async throws -> Int {

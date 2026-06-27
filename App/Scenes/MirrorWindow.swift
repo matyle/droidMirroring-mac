@@ -1,4 +1,5 @@
 import AppKit
+import ADBKit
 import CoreVideo
 import CoreMedia
 import MirrorEngine
@@ -21,8 +22,22 @@ final class MirrorWindowController: NSWindowController {
   private var isRecording = false
   private var isClipboardSyncing = true     // default ON, AndroMeld-style
   private var isScreenOff = false
+  /// "mac" | "phone" | "none" — persisted in UserDefaults
+  private var audioOutput: String {
+    get { UserDefaults.standard.string(forKey: "mirror.audioOutput") ?? "mac" }
+    set { UserDefaults.standard.set(newValue, forKey: "mirror.audioOutput") }
+  }
   private var clipboardBridge: ClipboardBridge?
   private let deviceDisplayName: String
+
+  // Screen-state poller — keeps `isScreenOff` in sync with the phone's real
+  // display state so the UI doesn't drift after the user manually unlocks.
+  private let adb = ADBClient()
+  private var screenStatePoller: Timer?
+  private var autoScreenOffEnabled = false   // whether the user wants auto-off
+  /// Device media volume saved before we muted it — restored when switching
+  /// back to "phone" mode so we don't leave the phone permanently silent.
+  private var savedDeviceVolume: Int?
 
   // iPhone-Mirroring-style chrome auto-hide.
   private var chromeRevealed = false
@@ -37,6 +52,10 @@ final class MirrorWindowController: NSWindowController {
 
   /// Set by SessionCoordinator after the controller is created.
   var deviceSerial: String?
+  /// True while the session is being torn down and relaunched (audio mode
+  /// change). Prevents `bindControl()` from re-applying audio / auto-screen-off
+  /// on the fresh session so the window keeps its current state.
+  var isRestarting = false
 
   init(deviceName: String) throws {
     let renderer = try MetalFrameRenderer()
@@ -152,6 +171,8 @@ final class MirrorWindowController: NSWindowController {
   required init?(coder: NSCoder) { fatalError() }
 
   override func close() {
+    screenStatePoller?.invalidate()
+    screenStatePoller = nil
     if let monitor = mouseMonitor {
       NSEvent.removeMonitor(monitor)
       mouseMonitor = nil
@@ -167,10 +188,14 @@ final class MirrorWindowController: NSWindowController {
         }
       }
       // Restore screen power before tearing down so we don't leave the device
-      // dark after disconnect. Use KEYCODE_POWER for compatibility.
+      // dark after disconnect. Use setScreenPowerMode(NORMAL) for a clean wake.
       if isScreenOff, let writer = await session.control {
-        try? await writer.send(.keycode(26, action: .down))  // KEYCODE_POWER down
-        try? await writer.send(.keycode(26, action: .up))    // KEYCODE_POWER up
+        try? await writer.send(.setScreenPowerMode(2))  // NORMAL — restore full power
+      }
+      // Restore device media volume if we muted it for "mac" audio mode.
+      if let serial = deviceSerial, let vol = savedDeviceVolume {
+        try? await adb.shell("media volume --stream 3 --set \(vol)", serial: serial)
+        savedDeviceVolume = nil
       }
       await session.stop()
     }
@@ -196,6 +221,7 @@ final class MirrorWindowController: NSWindowController {
 
     await MainActor.run {
       self.isClipboardSyncing = clipboardOn
+      self.autoScreenOffEnabled = autoScreenOff
       self.eventView.controlSink = { msg in
         Task { try? await writer.send(msg) }
       }
@@ -209,17 +235,31 @@ final class MirrorWindowController: NSWindowController {
       self.window?.toolbar?.validateVisibleItems()
     }
 
-    // Privacy preference — black out the device panel right after the first
+    // Privacy preference — black out the device screen right after the first
     // frame so we don't surprise the user by displaying their lock screen.
-    // Use KEYCODE_POWER for true screen off (not just brightness=0).
-    if autoScreenOff {
-      try? await writer.send(.keycode(26, action: .down))  // KEYCODE_POWER down
-      try? await writer.send(.keycode(26, action: .up))    // KEYCODE_POWER up
+    // Use setScreenPowerMode(0) to keep the virtual display rendering so the
+    // Mac mirror stays alive while the phone panel is dark.
+    // Skipped on session restart — the window already has its real screen state.
+    if !isRestarting, autoScreenOff {
+      try? await writer.send(.setScreenPowerMode(0))  // OFF — panel dark, display still rendering
       await MainActor.run {
         self.isScreenOff = true
         self.window?.toolbar?.validateVisibleItems()
       }
     }
+
+    // Start polling the device's real screen state so the UI stays in sync
+    // even when the user unlocks the phone manually.
+    startScreenStatePoller()
+
+    // Apply the audio-output mode chosen in Settings.  When "mac" is active we
+    // save the phone's current media volume and mute it so audio only plays
+    // from the Mac (no double-sound).  Restored on disconnect / mode change.
+    // Skipped on session restart — the mode was already applied before restart.
+    if !isRestarting {
+      await MainActor.run { self.applyAudioOutput(self.audioOutput) }
+    }
+    isRestarting = false
   }
 
   // MARK: actions (wired from MirrorOverlayBar / window menu / keyboard)
@@ -267,15 +307,14 @@ final class MirrorWindowController: NSWindowController {
   }
 
   @objc private func wakeDevice() {
-    // Use KEYCODE_POWER to properly wake the device screen
-    Task {
-      if let writer = await session.control {
-        try? await writer.send(.keycode(26, action: .down))  // KEYCODE_POWER down
-        try? await writer.send(.keycode(26, action: .up))    // KEYCODE_POWER up
-      }
-    }
+    // Use setScreenPowerMode(NORMAL) to properly wake the device screen
     isScreenOff = false
     window?.toolbar?.validateVisibleItems()
+    Task {
+      if let writer = await session.control {
+        try? await writer.send(.setScreenPowerMode(2))  // NORMAL — wake screen
+      }
+    }
   }
 
   @objc private func sendBack() {
@@ -310,14 +349,143 @@ final class MirrorWindowController: NSWindowController {
     clipboardBridge?.enabled = isClipboardSyncing
   }
 
-  @objc private func toggleScreenOff() {
-    isScreenOff.toggle()
-    let mode: UInt8 = isScreenOff ? 0 : 2
+  /// Cycle audio output: mac → phone → none → mac
+  /// Changing audio mode requires restarting the scrcpy server so the new
+  /// `audioEnabled` flag takes effect on the device side.
+  @objc private func cycleAudioOutput() {
+    let next: String
+    switch audioOutput {
+    case "mac":   next = "phone"
+    case "phone": next = "none"
+    default:      next = "mac"
+    }
+    audioOutput = next
+    // Restart the session so scrcpy-server starts / stops the audio stream.
+    guard let serial = deviceSerial else { return }
+    isRestarting = true
+    Task { await SessionCoordinator.shared.restartMirror(for: serial) }
+  }
+
+  /// Apply an audio-output mode to both the Mac-side renderer and the device.
+  /// - `"mac"`:   Mac plays audio, device muted (avoid double sound)
+  /// - `"phone"`: Device plays audio, Mac renderer paused
+  /// - `"none"`:  Everything silent
+  private func applyAudioOutput(_ mode: String) {
+    // 1. Mac-side renderer
+    switch mode {
+    case "mac":   session.resumeAudio()
+    default:      session.pauseAudio()
+    }
+
+    // 2. Device-side volume — only touch ADB when the session is live.
+    guard let serial = deviceSerial else { return }
     Task {
-      if let writer = await session.control {
-        try? await writer.send(.setScreenPowerMode(mode))
+      switch mode {
+      case "mac":
+        // Save current volume (first time) then mute so we don't get
+        // duplicate audio from both speakers.
+        if savedDeviceVolume == nil {
+          savedDeviceVolume = await fetchDeviceVolume(serial: serial)
+        }
+        await setDeviceVolume(serial: serial, level: 0)
+
+      case "phone":
+        // Restore the original device volume.
+        let level = savedDeviceVolume ?? 7
+        await setDeviceVolume(serial: serial, level: level)
+        savedDeviceVolume = nil
+
+      case "none":
+        if savedDeviceVolume == nil {
+          savedDeviceVolume = await fetchDeviceVolume(serial: serial)
+        }
+        await setDeviceVolume(serial: serial, level: 0)
+
+      default: break
       }
     }
+  }
+
+  // MARK: ADB volume helpers
+
+  private func fetchDeviceVolume(serial: String) async -> Int? {
+    do {
+      let out = try await adb.shell("media volume --stream 3 --get", serial: serial)
+      // "Volume is 7" or similar
+      if let r = out.range(of: #"(\d+)"#, options: .regularExpression) {
+        return Int(out[r].filter(\.isNumber))
+      }
+    } catch {}
+    return nil
+  }
+
+  private func setDeviceVolume(serial: String, level: Int) async {
+    do {
+      _ = try await adb.shell("media volume --stream 3 --set \(level)", serial: serial)
+    } catch {}
+  }
+
+  @objc private func toggleScreenOff() {
+    // Flip to the *desired* state — the poller will reconcile if the device
+    // doesn't match (e.g. user already unlocked manually).
+    let turnOff = !isScreenOff
+    isScreenOff = turnOff
+    window?.toolbar?.validateVisibleItems()
+    Task {
+      if let writer = await session.control {
+        // setScreenPowerMode: 0=OFF (panel dark, display still renders for mirror)
+        //                     2=NORMAL (full wake)
+        try? await writer.send(.setScreenPowerMode(turnOff ? 0 : 2))
+      }
+    }
+  }
+
+  // MARK: screen-state poller
+
+  /// Poll the phone's real screen state via ADB so `isScreenOff` (and therefore
+  /// the Sleep/Wake button label) always reflects reality — even when the user
+  /// unlocks the device manually.
+  private func startScreenStatePoller() {
+    screenStatePoller?.invalidate()
+    screenStatePoller = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+      guard let self, let serial = self.deviceSerial else { return }
+      Task.detached { [weak self] in
+        guard let self else { return }
+        let actuallyOff = await self.queryDeviceScreenOff(serial: serial)
+        let wantsAutoOff = await self.autoScreenOffEnabled
+        await MainActor.run {
+          let changed = self.isScreenOff != actuallyOff
+          if changed {
+            self.isScreenOff = actuallyOff
+            self.window?.toolbar?.validateVisibleItems()
+          }
+          // If autoScreenOff is on and the user just unlocked the phone,
+          // re-apply screen-off so the phone doesn't stay lit.
+          if wantsAutoOff, !actuallyOff {
+            Task {
+              if let writer = await self.session.control {
+                try? await writer.send(.setScreenPowerMode(0))
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /// Returns `true` when the device display is off / dozing.
+  private func queryDeviceScreenOff(serial: String) async -> Bool {
+    do {
+      let out = try await adb.shell("dumpsys power", serial: serial)
+      // mWakefulness: Awake | Asleep | Doze | DozeSuspend
+      if let range = out.range(of: "mWakefulness=") {
+        let value = out[range.upperBound...].prefix { $0.isLetter }
+        return value != "Awake"
+      }
+    } catch {
+      // ADB unavailable or device disconnected — keep current state.
+    }
+    return isScreenOff
   }
 
   @objc private func openFiles() {
@@ -359,7 +527,8 @@ final class MirrorWindowController: NSWindowController {
         isRecording: isRecording,
         isClipboardSyncing: isClipboardSyncing,
         isScreenOff: isScreenOff,
-        isPinned: isPinned
+        isPinned: isPinned,
+        audioOutput: audioOutput
       ),
       onBack:       { [weak self] in dismiss(); self?.sendBack() },
       onHome:       { [weak self] in dismiss(); self?.sendHome() },
@@ -370,7 +539,8 @@ final class MirrorWindowController: NSWindowController {
       onClipboard:  { [weak self] in dismiss(); self?.toggleClipboardSync() },
       onScreenOff:  { [weak self] in dismiss(); self?.toggleScreenOff() },
       onWake:       { [weak self] in dismiss(); self?.wakeDevice() },
-      onPin:        { [weak self] in dismiss(); self?.togglePin() }
+      onPin:        { [weak self] in dismiss(); self?.togglePin() },
+      onCycleAudio: { [weak self] in dismiss(); self?.cycleAudioOutput() }
     )
     let hosting = NSHostingController(rootView: panel)
     popover.contentViewController = hosting
@@ -542,6 +712,7 @@ struct MoreActionsPanel: View {
     var isClipboardSyncing: Bool
     var isScreenOff: Bool
     var isPinned: Bool
+    var audioOutput: String  // "mac" | "phone" | "none"
   }
 
   let state: State
@@ -555,6 +726,23 @@ struct MoreActionsPanel: View {
   let onScreenOff: () -> Void
   let onWake: () -> Void
   let onPin: () -> Void
+  let onCycleAudio: () -> Void
+
+  var audioLabel: String {
+    switch state.audioOutput {
+    case "mac":   return "Mac"
+    case "phone": return "Phone"
+    default:      return "Mute"
+    }
+  }
+
+  var audioSymbol: String {
+    switch state.audioOutput {
+    case "mac":   return "speaker.wave.3.fill"
+    case "phone": return "iphone.gen2"
+    default:      return "speaker.slash.fill"
+    }
+  }
 
   var body: some View {
     VStack(spacing: 8) {
@@ -580,6 +768,9 @@ struct MoreActionsPanel: View {
              label: state.isScreenOff ? "Wake" : "Sleep",
              tint: state.isScreenOff ? .yellow : nil,
              action: onScreenOff)
+        Tile(symbol: audioSymbol, label: audioLabel, action: onCycleAudio)
+      }
+      HStack(spacing: 8) {
         Tile(symbol: "power", label: "Power", action: onWake)
         Tile(symbol: state.isPinned ? "pin.fill" : "pin",
              label: "Pin",

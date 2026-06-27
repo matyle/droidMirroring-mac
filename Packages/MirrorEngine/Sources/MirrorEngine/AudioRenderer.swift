@@ -28,6 +28,11 @@ public final class AudioRenderer: @unchecked Sendable {
   private let outputFormat: AVAudioFormat
   private var engineStarted = false
 
+  /// True while paused — `feed()` drops packets so the buffer queue doesn't
+  /// grow and old audio doesn't burst out on resume.
+  private var _isPaused = false
+  private let lock = NSLock()
+
   // Per-call state for the AudioConverter input callback.
   private var pendingPacket: Data?
   private var pendingPacketConsumed = false
@@ -84,8 +89,36 @@ public final class AudioRenderer: @unchecked Sendable {
     scratch = nil
   }
 
+  /// Pause playback without tearing down the engine.  Packets keep arriving
+  /// from scrcpy but are silently discarded until `resume()` is called.
+  public func pause() {
+    lock.lock()
+    _isPaused = true
+    lock.unlock()
+    if engineStarted, player.isPlaying { player.pause() }
+  }
+
+  /// Resume playback after `pause()`.  Re-starts the engine if it was stopped.
+  public func resume() {
+    lock.lock()
+    _isPaused = false
+    lock.unlock()
+    if !engineStarted {
+      start()
+      return
+    }
+    if !player.isPlaying { player.play() }
+  }
+
   /// Feed one packet from scrcpy. Config packets carry codec extradata.
   public func feed(packet: Data, isConfig: Bool, pts: CMTime) throws {
+    // While paused, silently drop incoming packets so the queue doesn't grow
+    // and stale audio doesn't burst out when the user resumes.
+    lock.lock()
+    let paused = _isPaused
+    lock.unlock()
+    if paused { return }
+
     if isConfig {
       magicCookie = packet
       if let c = converter {

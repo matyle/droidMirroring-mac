@@ -28,6 +28,17 @@ public final class MirrorSession: @unchecked Sendable {
   public private(set) var deviceMessageReader: DeviceMessageReader?
   public private(set) var audioEnabled: Bool = false
 
+  /// Pause audio playback on the Mac side.  scrcpy still streams audio packets;
+  /// they are silently dropped until `resumeAudio()` is called.
+  public func pauseAudio() {
+    audioRenderer?.pause()
+  }
+
+  /// Resume audio playback on the Mac side after `pauseAudio()`.
+  public func resumeAudio() {
+    audioRenderer?.resume()
+  }
+
   private let frameSink: FrameSink
   private var launcher: ScrcpyServerLauncher?
   private var stream: VideoStream?

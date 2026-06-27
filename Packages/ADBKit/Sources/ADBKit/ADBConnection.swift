@@ -64,16 +64,22 @@ public actor ADBConnection {
     guard count > 0 else { return Data() }
     return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
       nw.receive(minimumIncompleteLength: count, maximumLength: count) { data, _, isComplete, error in
-        if let error { cont.resume(throwing: error); return }
+        // ENOMSG (errno 96) fires on wireless ADB when the device-side shell
+        // stream closes mid-read. Treat it like an early EOF rather than
+        // propagating a cryptic "No message available on STREAM" to the user.
+        if let error, !Self.isENOMSG(error) {
+          cont.resume(throwing: error); return
+        }
         if let data, data.count == count {
           cont.resume(returning: data)
           return
         }
-        if isComplete {
-          cont.resume(throwing: DroidMirroringError.adbProtocol("eof while reading \(count) bytes"))
+        let got = data?.count ?? 0
+        if error != nil || isComplete {
+          cont.resume(throwing: DroidMirroringError.adbProtocol("eof while reading \(count) bytes (got \(got))"))
           return
         }
-        cont.resume(throwing: DroidMirroringError.adbProtocol("short read: got \(data?.count ?? 0) of \(count)"))
+        cont.resume(throwing: DroidMirroringError.adbProtocol("short read: got \(got) of \(count)"))
       }
     }
   }
@@ -82,7 +88,10 @@ public actor ADBConnection {
   public func readAvailable(maxLength: Int = 64 * 1024) async throws -> Data {
     try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
       nw.receive(minimumIncompleteLength: 1, maximumLength: maxLength) { data, _, _, error in
-        if let error { cont.resume(throwing: error); return }
+        // ENOMSG on wireless ADB → treat as empty read (stream drained).
+        if let error, !Self.isENOMSG(error) {
+          cont.resume(throwing: error); return
+        }
         cont.resume(returning: data ?? Data())
       }
     }
@@ -101,17 +110,38 @@ public actor ADBConnection {
   private func readAvailableOrEOF() async throws -> Data {
     try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
       nw.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
-        if let error { cont.resume(throwing: error); return }
+        // ENOMSG (errno 96, macOS): "No message available on STREAM".
+        // On wireless ADB connections the adb server proxies the device-side
+        // shell over TCP; when the device daemon closes the stream, Network
+        // .framework occasionally surfaces ENOMSG instead of a clean FIN.
+        // This is a benign end-of-stream condition — treat it as EOF so
+        // `dumpsys window`, `pm list packages`, etc. don't blow up.
+        if let error, !Self.isENOMSG(error) {
+          cont.resume(throwing: error); return
+        }
         if let data, !data.isEmpty {
           cont.resume(returning: data); return
         }
-        if isComplete {
+        if isComplete || error != nil {
           cont.resume(returning: Data())
           return
         }
         cont.resume(returning: Data())
       }
     }
+  }
+
+  /// True if `error` is POSIX errno 96 (ENOMSG — "No message of desired type").
+  ///
+  /// This surfaces on wireless ADB (adb WiFi / `adb connect <ip>:<port>`) when
+  /// the device-side adb daemon tears down the shell pseudo-tty after a command
+  /// finishes. The adb TCP proxy relays the close as an ENOMSG rather than a
+  /// clean TCP FIN, depending on timing and OS version (macOS 14/15, iOS 17+).
+  /// The value 96 is the Darwin errno; on Linux ENOMSG is 91 — but this code
+  /// only runs on macOS so 96 is correct.
+  private static func isENOMSG(_ error: Error) -> Bool {
+    let ns = error as NSError
+    return ns.domain == NSPOSIXErrorDomain && ns.code == 96
   }
 
   public func write(_ data: Data) async throws {
