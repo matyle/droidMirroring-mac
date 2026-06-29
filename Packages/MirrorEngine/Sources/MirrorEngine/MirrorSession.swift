@@ -54,8 +54,8 @@ public final class MirrorSession: @unchecked Sendable {
 
   public func start(launcher: ScrcpyServerLauncher, options: ScrcpyOptions) async throws {
     state = .starting
+    self.launcher = launcher           // store BEFORE launch so stop() can clean up on failure
     let sockets = try await launcher.launch(options)
-    self.launcher = launcher
     self.deviceName = sockets.deviceName
     self.dimensions = (sockets.videoWidth, sockets.videoHeight)
     if let controlConn = sockets.control {

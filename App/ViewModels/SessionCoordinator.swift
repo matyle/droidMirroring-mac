@@ -156,17 +156,40 @@ final class SessionCoordinator: ObservableObject {
       height: pick?.height ?? 0,
       rotation: pick?.rotation ?? 0
     )
+    var controller: MirrorWindowController?
     do {
-      let controller = try MirrorWindowController(deviceName: device.model.isEmpty ? device.id : device.model)
-      controller.deviceSerial = device.id
-      mirrorWindows[device.id] = controller
-      controller.showWindow(nil)
-      try await launchSession(for: device, displayId: displayId, into: controller)
+      let c = try MirrorWindowController(deviceName: device.model.isEmpty ? device.id : device.model)
+      c.deviceSerial = device.id
+      mirrorWindows[device.id] = c
+      c.showWindow(nil)
+      controller = c
+      try await launchSession(for: device, displayId: displayId, into: c)
       startActiveDisplayPolling(for: device)
     } catch {
+      // ── Audio fallback ──────────────────────────────────────────────
+      // If the device has no audio HAL (e.g. ZTE F50), the audio socket
+      // never arrives and launch() throws audioUnavailable. Retry once
+      // with audio disabled so the user at least gets video.
+      if case DroidMirroringError.audioUnavailable = error, let c = controller {
+        log.warning("audio unavailable for \(device.id) — retrying without audio")
+        // Clean up the failed server process + reverse forward before retrying.
+        await c.session.stop()
+        do {
+          try await launchSession(for: device, displayId: displayId, into: c, audioEnabled: false)
+          startActiveDisplayPolling(for: device)
+          log.notice("mirror started without audio for \(device.id)")
+          return
+        } catch {
+          // Audio-disabled retry also failed — fall through to alert
+          log.error("audio-disabled retry also failed for \(device.id): \(error)")
+        }
+      }
+
       // If launch failed due to a bad display_id, clear the cache and retry with display 0.
+      // Skip this if the error is audioUnavailable (already retried above).
       let errDesc = error.localizedDescription
-      if errDesc.contains("display") || errDesc.contains("short read") || errDesc.contains("scrcpy") {
+      let isAudioError: Bool = { if case DroidMirroringError.audioUnavailable = error { return true }; return false }()
+      if !isAudioError, errDesc.contains("display") || errDesc.contains("short read") || errDesc.contains("scrcpy") {
         log.error("launch failed for \(device.id): \(error). Retrying with displayId=0...")
         activePanel.removeValue(forKey: device.id)
         mirrorWindows[device.id]?.close()
@@ -389,7 +412,8 @@ final class SessionCoordinator: ObservableObject {
   private func launchSession(
     for device: Device,
     displayId: Int,
-    into controller: MirrorWindowController
+    into controller: MirrorWindowController,
+    audioEnabled: Bool = true
   ) async throws {
     let resources = try ResourceLocator.scrcpyResources()
     let launcher = ScrcpyServerLauncher(adb: adb, serial: device.id, resources: resources)
@@ -408,7 +432,7 @@ final class SessionCoordinator: ObservableObject {
       maxFps: maxFps,
       videoCodec: codec,
       audioCodec: "opus",
-      audioEnabled: audioOutput == "mac",
+      audioEnabled: audioEnabled && audioOutput == "mac",
       controlEnabled: true,
       displayId: displayId
     )

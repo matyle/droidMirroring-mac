@@ -2,6 +2,14 @@
 
 All notable changes to DroidMirroring will be documented in this file.
 
+## [v1.4.1] - 2026-06-29
+
+### Fixed
+- **无音频设备投屏失败修复**（#8）：当设备没有音频 HAL（如 ZTE F50）时，音频 socket 10 秒超时会导致整个投屏崩溃
+  - 新增 `audioUnavailable` 错误类型，专门标识音频连接失败
+  - 投屏启动失败时自动降级：`audio=true` 超时 → 清理旧进程 → `audio=false` 重试
+  - 修复 `MirrorSession` launcher 引用时机，防止重试时旧 server 进程泄漏
+
 ## [v1.4.0] - 2026-06-29
 
 ### Changed

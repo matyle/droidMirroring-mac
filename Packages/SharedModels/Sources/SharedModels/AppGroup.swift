@@ -19,6 +19,7 @@ public enum DroidMirroringError: Error, Sendable {
   case deviceNotFound(String)
   case adbProtocol(String)
   case scrcpyProtocol(String)
+  case audioUnavailable(String)
   case decoder(String)
   case fileTransfer(String)
 }
@@ -30,6 +31,7 @@ extension DroidMirroringError: LocalizedError {
     case .deviceNotFound(let msg): return "Device not found: \(msg)"
     case .adbProtocol(let msg): return "ADB protocol error: \(msg)"
     case .scrcpyProtocol(let msg): return "Scrcpy protocol error: \(msg)"
+    case .audioUnavailable(let msg): return "Audio unavailable: \(msg)"
     case .decoder(let msg): return "Decoder error: \(msg)"
     case .fileTransfer(let msg): return "File transfer error: \(msg)"
     }

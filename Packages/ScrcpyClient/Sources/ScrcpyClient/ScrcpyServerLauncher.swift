@@ -149,7 +149,18 @@ public actor ScrcpyServerLauncher {
 
     var audioConn: NWConnection?
     if options.audioEnabled {
-      audioConn = try await acceptor.next()
+      do {
+        audioConn = try await acceptor.next()
+      } catch {
+        // Audio socket failed (timeout / device has no audio HAL).
+        // Translate to a specific error so the caller can retry without audio.
+        log.warning("audio socket failed — device may lack audio support: \(error)")
+        throw DroidMirroringError.audioUnavailable(
+          "Audio socket did not connect within timeout. " +
+          "The device may lack an audio HAL (e.g. ZTE F50). " +
+          "Original error: \(error.localizedDescription)"
+        )
+      }
     }
 
     var controlConn: NWConnection?
