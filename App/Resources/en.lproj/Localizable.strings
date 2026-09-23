@@ -121,3 +121,11 @@
 
 /* Pairing window */
 "Pair a wireless device" = "Pair a wireless device";
+
+/* Desktop mode window — overflow menu */
+"Screenshot" = "Screenshot";
+"Start Recording" = "Start Recording";
+"Stop Recording" = "Stop Recording";
+"Pin Window" = "Pin Window";
+"Unpin Window" = "Unpin Window";
+"Exit Desktop Mode" = "Exit Desktop Mode";

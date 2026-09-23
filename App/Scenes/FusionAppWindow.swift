@@ -11,7 +11,7 @@ import ScrcpyClient
 /// (Pin, Screenshot, Record) — Back/Home/Recents belong to the device, not to
 /// a single app's projected window.
 @MainActor
-final class FusionAppWindowController: NSWindowController, NSToolbarDelegate {
+final class FusionAppWindowController: NSWindowController, NSToolbarDelegate, NSWindowDelegate {
   let renderer: MetalFrameRenderer
   let eventView: MirrorEventView
   let recorder = ScreenRecorder()
@@ -56,6 +56,7 @@ final class FusionAppWindowController: NSWindowController, NSToolbarDelegate {
 
     window.center()
     super.init(window: window)
+    window.delegate = self
 
     let toolbar = NSToolbar(identifier: "com.droidmirroring.app.fusion.toolbar")
     toolbar.delegate = self
@@ -73,18 +74,17 @@ final class FusionAppWindowController: NSWindowController, NSToolbarDelegate {
 
   required init?(coder: NSCoder) { fatalError() }
 
-  override func close() {
+  func windowWillClose(_ notification: Notification) {
+    let recorder = self.recorder
+    let session = self.fusion?.mirrorSession
     Task {
       if recorder.isRecording {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
           recorder.stop { _ in cont.resume() }
         }
       }
-      if let fusion {
-        await fusion.mirrorSession.stop()
-      }
+      await session?.stop()
     }
-    super.close()
   }
 
   func attach(_ session: FusionSession) async {
@@ -113,10 +113,11 @@ final class FusionAppWindowController: NSWindowController, NSToolbarDelegate {
     static let screenshot = NSToolbarItem.Identifier("droidmirroring.fusion.screenshot")
     static let record     = NSToolbarItem.Identifier("droidmirroring.fusion.record")
     static let pin        = NSToolbarItem.Identifier("droidmirroring.fusion.pin")
+    static let more       = NSToolbarItem.Identifier("droidmirroring.fusion.more")
   }
 
   func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-    [.flexibleSpace, ToolbarID.screenshot, ToolbarID.record, ToolbarID.pin, .flexibleSpace]
+    [.flexibleSpace, ToolbarID.screenshot, ToolbarID.record, ToolbarID.pin, ToolbarID.more, .flexibleSpace]
   }
 
   func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -130,6 +131,7 @@ final class FusionAppWindowController: NSWindowController, NSToolbarDelegate {
     case ToolbarID.screenshot: return makeItem(itemIdentifier, label: "Screenshot", symbol: "camera", action: #selector(takeScreenshot))
     case ToolbarID.record:     return makeItem(itemIdentifier, label: "Record", symbol: "record.circle", action: #selector(toggleRecord))
     case ToolbarID.pin:        return makeItem(itemIdentifier, label: "Pin", symbol: "pin", action: #selector(togglePin))
+    case ToolbarID.more:       return makeMoreItem(itemIdentifier)
     default: return nil
     }
   }
@@ -146,7 +148,30 @@ final class FusionAppWindowController: NSWindowController, NSToolbarDelegate {
     return item
   }
 
+  private func makeMoreItem(_ id: NSToolbarItem.Identifier) -> NSMenuToolbarItem {
+    let label = String(localized: "More")
+    let item = NSMenuToolbarItem(itemIdentifier: id)
+    item.label = label
+    item.paletteLabel = label
+    item.toolTip = label
+    item.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: label)
+    item.showsIndicator = false
+    let menu = NSMenu()
+    menu.delegate = self
+    item.menu = menu
+    return item
+  }
+
   // MARK: toolbar actions
+
+  @objc private func openAppSettings() {
+    NSApp.activate(ignoringOtherApps: true)
+    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+  }
+
+  @objc private func exitDesktopMode() {
+    window?.performClose(nil)
+  }
 
   @objc private func takeScreenshot() {
     guard let buffer = renderer.lastPixelBuffer else { return }
@@ -302,6 +327,27 @@ private struct MirrorViewHost: NSViewRepresentable {
   let view: NSView
   func makeNSView(context: Context) -> NSView { view }
   func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+extension FusionAppWindowController: NSMenuDelegate {
+  func menuNeedsUpdate(_ menu: NSMenu) {
+    menu.removeAllItems()
+    menu.addItem(menuItem(String(localized: "Screenshot"), #selector(takeScreenshot)))
+    menu.addItem(menuItem(isRecording ? String(localized: "Stop Recording")
+                                      : String(localized: "Start Recording"), #selector(toggleRecord)))
+    menu.addItem(menuItem(isPinned ? String(localized: "Unpin Window")
+                                   : String(localized: "Pin Window"), #selector(togglePin)))
+    menu.addItem(.separator())
+    menu.addItem(menuItem(String(localized: "Settings…"), #selector(openAppSettings)))
+    menu.addItem(.separator())
+    menu.addItem(menuItem(String(localized: "Exit Desktop Mode"), #selector(exitDesktopMode)))
+  }
+
+  private func menuItem(_ title: String, _ action: Selector) -> NSMenuItem {
+    let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+    item.target = self
+    return item
+  }
 }
 
 extension FusionAppWindowController: NSToolbarItemValidation {

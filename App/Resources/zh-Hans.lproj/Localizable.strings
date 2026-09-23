@@ -166,3 +166,11 @@
 
 /* Pairing window */
 "Pair a wireless device" = "配对无线设备";
+
+/* Desktop mode window — overflow menu */
+"Screenshot" = "截屏";
+"Start Recording" = "开始录屏";
+"Stop Recording" = "停止录屏";
+"Pin Window" = "窗口置顶";
+"Unpin Window" = "取消置顶";
+"Exit Desktop Mode" = "退出桌面模式";
