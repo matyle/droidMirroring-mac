@@ -6,6 +6,9 @@ final class MirrorEventView: NSView, NSTextInputClient {
   var controlSink: ((ControlMessage) -> Void)?
   var deviceDimensions: CGSize = .zero
   var uhidKeyboard: UHIDKeyboardManager?
+  /// Extrapolate a burst of moves past the release point so Android reads a fling.
+  /// Right for phone scrolling, wrong for dragging freeform windows.
+  var flingExtrapolation = true
 
   private var markedText: NSMutableAttributedString?
   private var isComposingIME = false
@@ -41,7 +44,7 @@ final class MirrorEventView: NSView, NSTextInputClient {
   override func mouseDown(with e: NSEvent) { currentButtons.insert(.primary); dragMoved = false; if let pt = devicePoint(for: e) { dragStartDevice = pt }; dragStartTimestamp = e.timestamp; sendTouch(.down, event: e) }
   override func mouseDragged(with e: NSEvent) { dragMoved = true; sendTouch(.move, event: e) }
   override func mouseUp(with e: NSEvent) {
-    if dragMoved, let start = dragStartDevice, let cur = devicePoint(for: e) {
+    if flingExtrapolation, dragMoved, let start = dragStartDevice, let cur = devicePoint(for: e) {
       let dy = (cur.1 - start.1) * 3; let dx = (cur.0 - start.0) * 3
       let moved = abs(cur.1 - start.1) + abs(cur.0 - start.0)
       let elapsed = max(0.001, e.timestamp - dragStartTimestamp)

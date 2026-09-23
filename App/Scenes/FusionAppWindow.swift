@@ -27,7 +27,10 @@ final class FusionAppWindowController: NSWindowController, NSToolbarDelegate {
   init(appLabel: String) throws {
     let renderer = try MetalFrameRenderer()
     self.renderer = renderer
-    self.eventView = MirrorEventView(layer: renderer.layer)
+    let eventView = MirrorEventView(layer: renderer.layer)
+    // Freeform windows are dragged and resized, not flung.
+    eventView.flingExtrapolation = false
+    self.eventView = eventView
     self.appLabel = appLabel
 
     let window = NSWindow(
